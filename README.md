@@ -1,6 +1,6 @@
 
 <h1 align="center">
-    <img src="./resources/background-cover.png" alt="logo" width="180"><br>
+    <img src="./resources/kabegame-background-cover.png" alt="logo" width="180"><br>
     VS Code - Kabegame Background Cover
 </h1>
 

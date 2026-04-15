@@ -2,7 +2,7 @@
   "name": "kabegame-background-cover",
   "displayName": "kabegame-background-cover",
   "description": "VS Code background powered by Kabegame — syncs wallpaper rotation via IPC and browses your local Kabegame image library.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "cmtheit",
   "engines": {
     "vscode": "^1.38.0"

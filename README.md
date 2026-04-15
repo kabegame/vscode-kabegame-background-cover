@@ -52,4 +52,5 @@
 
 ## 仓库
 - [Kabegame](https://github.com/kabegame/kabegame)
-- [本拡張子](https://github.com/kabegame/vscode-kabegame-vscode-background-cover)
+- [本拡張子](https://github.com/kabegame/vscode-kabegame-background-cover)
+- [VSCode Market](https://marketplace.visualstudio.com/items?itemName=cmtheit.kabegame-background-cover)

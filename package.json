@@ -1,253 +1,213 @@
 {
-    "name": "background-cover",
-    "displayName": "background-cover",
-    "description": "Add a picture you like to cover the entire vscode background (Hot Reload Supported). / 添加你喜欢的图片覆盖整个vscode背景（支持热更新）",
-    "version": "3.2.5",
-    "publisher": "manasxx",
-    "engines": {
-        "vscode": "^1.38.0"
-    },
-    "one_title": true,
-    "icon": "resources/background-cover.png",
-    "galleryBanner": {
-        "color": "#03385a",
-        "theme": "dark"
-    },
-    "categories": [
-        "Other"
-    ],
-    "keywords": [
-        "Background",
-        "Theme"
-    ],
-    "activationEvents": [
-        "*"
-    ],
-    "license": "ISC",
-    "main": "./out/extension",
-    "extensionKind": [
-        "ui",
-        "workspace"
-    ],
-    "contributes": {
-        "commands": [
-            {
-                "command": "extension.backgroundCover.start",
-                "title": "backgroundCover - start"
-            },
-            {
-                "command": "extension.backgroundCover.refresh",
-                "title": "backgroundCover - refresh"
-            },
-            {
-                "command": "extension.backgroundCover.nest",
-                "title": "backgroundCover - nest"
-            },
-            {
-                "command": "backgroundCover.refreshEntry",
-                "title": "刷新",
-                "icon": {
-                    "light": "resources/light/refresh.svg",
-                    "dark": "resources/dark/refresh.svg"
-                }
-            },
-            {
-                "command": "backgroundCover.home",
-                "title": "首页",
-                "icon": {
-                    "light": "resources/light/home.svg",
-                    "dark": "resources/dark/home.svg"
-                }
-            },
-            {
-                "command": "backgroundCover.switchMode",
-                "title": "配置",
-                "icon": "$(settings-gear)"
-            },
-            {
-                "command": "backgroundCover.support",
-                "title": "赞助",
-                "icon": "$(heart)"
-            }
-        ],
-        "keybindings": [
-            {
-                "command": "extension.backgroundCover.refresh",
-                "key": "ctrl+shift+f7"
-            }
-        ],
-        "configuration": {
-            "title": "background-cover config",
-            "properties": {
-                "backgroundCover.opacity": {
-                    "type": "number",
-                    "maximum": 0.8,
-                    "minimum": 0,
-                    "default": 0.2,
-                    "description": "Background opacity (0 - 0.8) / 背景透明度(0 - 0.8)"
-                },
-                "backgroundCover.blur": {
-                    "type": "number",
-                    "maximum": 100,
-                    "minimum": 0,
-                    "default": 0,
-                    "description": "Background blur (0 - 100) / 背景模糊(0 - 100)"
-                },
-                "backgroundCover.imagePath": {
-                    "type": "string",
-                    "default": "",
-                    "description": "Background image path / 背景图片路径"
-                },
-                "backgroundCover.randomImageFolder": {
-                    "type": "string",
-                    "default": "",
-                    "description": "Background image's folder path for random / 图片目录"
-                },
-                "backgroundCover.autoStatus": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Automatically change background each time you start / 每次启动时随机自动更换背景"
-                },
-                "backgroundCover.autoInterval": {
-                    "type": "number",
-                    "default": 10,
-                    "description": "Automatically change background interval in seconds / 自动更换背景的时间间隔（秒）"
-                },
-                "backgroundCover.sizeModel": {
-                    "type": "string",
-                    "enum": [
-                        "cover",
-                        "repeat",
-                        "contain",
-                        "center",
-                        "not_center",
-                        "not_right_bottom",
-                        "not_right_top",
-                        "not_left",
-                        "not_right",
-                        "not_top",
-                        "not_bottom"
-                    ],
-                    "default": "cover",
-                    "description": "Background image size adaptive mode / 图片尺寸适应模式"
-                },
-                "backgroundCover.blendModel": {
-                    "type": "string",
-                    "enum": [
-                        "auto",
-                        "multiply",
-                        "lighten"
-                    ],
-                    "default": "cover",
-                    "description": "Background image blend mode / 图片文字混合模式，对应主题模式"
-                },
-                "backgroundCover.defaultOnlinePage": {
-                    "type": "string",
-                    "default": "https://vs.20988.xyz/d/24-vscodebei-jing-tu-tu-ku",
-                    "description": "Online images default page / 在线图库默认页面"
-                }
-            }
-        },
-        "viewsContainers": {
-            "activitybar": [
-                {
-                    "id": "backgroundCover-explorer",
-                    "title": "backgroundCover",
-                    "icon": "resources/big.svg"
-                }
-            ]
-        },
-        "views": {
-            "backgroundCover-explorer": [
-                {
-                    "id": "backgroundCover.menu",
-                    "name": "Menu",
-                    "when": "backgroundCover.mode == 'menu'"
-                },
-                {
-                    "id": "backgroundCover.readerView",
-                    "type": "webview",
-                    "name": "Online Gallery",
-                    "when": "backgroundCover.mode != 'menu'"
-                }
-            ]
-        },
-        "menus": {
-            "view/title": [
-                {
-                    "command": "backgroundCover.refreshEntry",
-                    "when": "view == backgroundCover.readerView",
-                    "group": "navigation@2"
-                },
-                {
-                    "command": "backgroundCover.home",
-                    "when": "view == backgroundCover.readerView",
-                    "group": "navigation@1"
-                },
-                {
-                    "command": "backgroundCover.switchMode",
-                    "when": "view == backgroundCover.readerView",
-                    "group": "navigation@0"
-                },
-                {
-                    "command": "backgroundCover.support",
-                    "when": "view == backgroundCover.readerView",
-                    "group": "navigation@3"
-                },
-                                {
-                    "command": "backgroundCover.switchMode",
-                    "when": "view == backgroundCover.menu",
-                    "group": "navigation@0"
-                },
-                {
-                    "command": "backgroundCover.home",
-                    "when": "view == backgroundCover.menu",
-                    "group": "navigation@1"
-                },
-                {
-                    "command": "backgroundCover.refreshEntry",
-                    "when": "view == backgroundCover.menu",
-                    "group": "navigation@2"
-                },
-                {
-                    "command": "backgroundCover.support",
-                    "when": "view == backgroundCover.menu",
-                    "group": "navigation@3"
-                }
-            ]
+  "name": "kabegame-background-cover",
+  "displayName": "kabegame-background-cover",
+  "description": "VS Code background powered by Kabegame — syncs wallpaper rotation via IPC and browses your local Kabegame image library.",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.38.0"
+  },
+  "one_title": true,
+  "icon": "resources/kabegame-background-cover.png",
+  "galleryBanner": {
+    "color": "#03385a",
+    "theme": "dark"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "Background",
+    "Theme",
+    "Kabegame"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "license": "GPL-3.0-only",
+  "main": "./out/extension",
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "extension.backgroundCover.start",
+        "title": "backgroundCover - start"
+      },
+      {
+        "command": "extension.backgroundCover.refresh",
+        "title": "backgroundCover - refresh"
+      },
+      {
+        "command": "backgroundCover.refreshEntry",
+        "title": "刷新",
+        "icon": {
+          "light": "resources/light/refresh.svg",
+          "dark": "resources/dark/refresh.svg"
         }
+      },
+      {
+        "command": "backgroundCover.home",
+        "title": "首页",
+        "icon": {
+          "light": "resources/light/home.svg",
+          "dark": "resources/dark/home.svg"
+        }
+      },
+      {
+        "command": "backgroundCover.switchMode",
+        "title": "配置",
+        "icon": "$(settings-gear)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "extension.backgroundCover.refresh",
+        "key": "ctrl+shift+f7"
+      }
+    ],
+    "configuration": {
+      "title": "background-cover config",
+      "properties": {
+        "backgroundCover.opacity": {
+          "type": "number",
+          "maximum": 0.8,
+          "minimum": 0,
+          "default": 0.2,
+          "description": "Background opacity (0 - 0.8) / 背景透明度(0 - 0.8)"
+        },
+        "backgroundCover.blur": {
+          "type": "number",
+          "maximum": 100,
+          "minimum": 0,
+          "default": 0,
+          "description": "Background blur (0 - 100) / 背景模糊(0 - 100)"
+        },
+        "backgroundCover.imagePath": {
+          "type": "string",
+          "default": "",
+          "description": "Background image path (synced from Kabegame) / 背景图片路径（由 Kabegame 同步）"
+        },
+        "backgroundCover.sizeModel": {
+          "type": "string",
+          "enum": [
+            "cover",
+            "repeat",
+            "contain",
+            "center"
+          ],
+          "default": "cover",
+          "description": "Background image size adaptive mode (synced from Kabegame wallpaperStyle) / 图片尺寸适应模式"
+        },
+        "backgroundCover.blendModel": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "multiply",
+            "lighten"
+          ],
+          "default": "auto",
+          "description": "Background image blend mode / 图片文字混合模式，对应主题模式"
+        },
+        "backgroundCover.syncKabegame": {
+          "type": "boolean",
+          "default": true,
+          "description": "Sync wallpaper with Kabegame via IPC. When off, gallery clicks write directly to VS Code config / 通过 IPC 与 Kabegame 同步壁纸，关闭时点击画廊直接写入 VS Code 配置"
+        }
+      }
     },
-    "bugs": {
-        "url": "https://github.com/AShujiao/vscode-background-cover/issues",
-        "email": "a916817706@live.com"
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "backgroundCover-explorer",
+          "title": "backgroundCover",
+          "icon": "resources/big.svg"
+        }
+      ]
     },
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/AShujiao/vscode-background-cover.git"
+    "views": {
+      "backgroundCover-explorer": [
+        {
+          "id": "backgroundCover.menu",
+          "name": "Menu",
+          "when": "backgroundCover.mode == 'menu'"
+        },
+        {
+          "id": "backgroundCover.readerView",
+          "type": "webview",
+          "name": "Kabegame Gallery",
+          "when": "backgroundCover.mode != 'menu'"
+        }
+      ]
     },
-    "homepage": "https://github.com/AShujiao/vscode-background-cover/blob/master/README.md#manasxx-readme",
-    "scripts": {
-        "vscode:prepublish": "npm run compile",
-        "vscode:uninstall": "node ./out/uninstall",
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
-        "test": "npm run compile && node ./node_modules/vscode/bin/test",
-        "check": "tslint -p ./"
-    },
-    "devDependencies": {
-        "@types/fs-extra": "^11.0.4",
-        "@types/lockfile": "^1.0.4",
-        "@types/mocha": "^5.2.7",
-        "@types/node": "^22.9.0",
-        "@types/proper-lockfile": "^4.1.4",
-        "@types/vscode": "^1.30.0",
-        "@vscode/test-electron": "^2.3.2",
-        "typescript": "^4.5.4"
-    },
-    "dependencies": {
-        "async-mutex": "^0.5.0",
-        "fs-extra": "^11.2.0",
-        "proper-lockfile": "^4.1.2",
-        "sudo-prompt": "^9.2.1"
+    "menus": {
+      "view/title": [
+        {
+          "command": "backgroundCover.refreshEntry",
+          "when": "view == backgroundCover.readerView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "backgroundCover.home",
+          "when": "view == backgroundCover.readerView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "backgroundCover.switchMode",
+          "when": "view == backgroundCover.readerView",
+          "group": "navigation@0"
+        },
+        {
+          "command": "backgroundCover.switchMode",
+          "when": "view == backgroundCover.menu",
+          "group": "navigation@0"
+        },
+        {
+          "command": "backgroundCover.home",
+          "when": "view == backgroundCover.menu",
+          "group": "navigation@1"
+        },
+        {
+          "command": "backgroundCover.refreshEntry",
+          "when": "view == backgroundCover.menu",
+          "group": "navigation@2"
+        }
+      ]
     }
+  },
+  "bugs": {
+    "url": "https://github.com/kabegame/vscode-kabegame-background-cover/issues",
+    "email": "a916817706@live.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kabegame/vscode-kabegame-background-cover.git"
+  },
+  "homepage": "https://github.com/kabegame/vscode-kabegame-background-cover/blob/master/README.md#manasxx-readme",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "vscode:uninstall": "node ./out/uninstall",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node ./node_modules/vscode/bin/test",
+    "check": "tslint -p ./"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/lockfile": "^1.0.4",
+    "@types/mocha": "^5.2.7",
+    "@types/node": "^22.9.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/vscode": "^1.30.0",
+    "@vscode/test-electron": "^2.3.2",
+    "typescript": "^4.5.4"
+  },
+  "dependencies": {
+    "async-mutex": "^0.5.0",
+    "cbor-x": "^1.6.4",
+    "fs-extra": "^11.2.0",
+    "proper-lockfile": "^4.1.2",
+    "sudo-prompt": "^9.2.1"
+  }
 }

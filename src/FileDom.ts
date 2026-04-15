@@ -11,7 +11,7 @@ import version from './version';
 import { SudoPromptHelper } from './SudoPromptHelper';
 import * as fse from 'fs-extra';
 import { getContext } from './global';
-import { getParticleEffectJs } from './ParticleEffect';
+
 
 interface WorkbenchTarget {
     name: string;
@@ -675,29 +675,12 @@ export class FileDom {
 
     // 获取要应用的js内容
     private getJs(): string {
-        const particleJs = this.getParticleJs();
-
         return `
         /*ext-${this.extName}-start*/
         /*ext.${this.extName}.ver.${version}*/
         ${this.getLoaderJs()}
-        ${particleJs}
         /*ext-${this.extName}-end*/
         `;
-    }
-
-    // 获取粒子效果js
-    private getParticleJs(): string {
-        const context = getContext();
-        if (!context.globalState.get('backgroundCoverParticleEffect', false)) {
-            return '';
-        }
-
-        const opacity = context.globalState.get('backgroundCoverParticleOpacity', 0.6);
-        const color = context.globalState.get('backgroundCoverParticleColor', '#ffffff');
-        const count = context.globalState.get('backgroundCoverParticleCount', 50);
-
-        return getParticleEffectJs(opacity, color, count);
     }
 
     // 获取css内容

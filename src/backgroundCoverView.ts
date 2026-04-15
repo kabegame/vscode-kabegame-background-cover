@@ -1,80 +1,48 @@
 import * as vscode from 'vscode';
 import { ActionType } from './PickList';
-import { getContext, onDidChangeGlobalState } from './global';
+import { onDidChangeGlobalState } from './global';
 
 // Localization
 const messages = {
     en: {
         imageSource: 'Image Source',
         appearance: 'Appearance',
-        autoRandom: 'Auto Random',
-        particleEffects: 'Particle Effects',
         actions: 'Actions',
         currentImage: 'Current Image',
         selectImage: 'Select Image...',
-        addDirectory: 'Add Directory...',
-        inputPath: 'Input Path/URL...',
         opacity: 'Opacity',
         blur: 'Blur',
         sizeMode: 'Size Mode',
         blendMode: 'Blend Mode',
-        enabled: 'Enabled',
-        interval: 'Interval (s)',
-        sourceFolder: 'Source Folder',
-        openSettings: 'Open Settings...',
-        toggleParticles: 'Toggle Particles',
-        particleOpacity: 'Particle Opacity',
-        particleColor: 'Particle Color',
-        particleCount: 'Particle Count',
         clearBackground: 'Clear Background',
         refresh: 'Refresh',
-        refreshFolder: 'Refresh Online Folder',
-        openCacheFolder: 'Open Cache Folder',
-        supportAuthor: 'Support Author',
+        kabegameGallery: 'Kabegame Gallery',
+        syncKabegame: 'Sync with Kabegame',
         setSizeMode: 'Set Size Mode',
         setBlendMode: 'Set Blend Mode',
         toggle: 'Toggle',
         notSet: 'Not Set',
         none: 'None',
-        petAssistant: 'Top Pet',
-        togglePet: 'Toggle',
-        selectPet: 'Select Pet'
     },
     zh: {
         imageSource: '图片来源',
         appearance: '外观设置',
-        autoRandom: '自动随机',
-        particleEffects: '粒子效果',
         actions: '操作',
         currentImage: '当前图片',
         selectImage: '选择图片/视频文件...',
-        addDirectory: '添加目录...',
-        inputPath: '输入路径/URL...',
         opacity: '透明度',
         blur: '模糊度',
         sizeMode: '尺寸模式',
         blendMode: '混合模式',
-        enabled: '启用',
-        interval: '间隔 (秒)',
-        sourceFolder: '来源目录',
-        openSettings: '打开设置...',
-        toggleParticles: '切换粒子效果',
-        particleOpacity: '粒子透明度',
-        particleColor: '粒子颜色',
-        particleCount: '粒子数量',
         clearBackground: '清除背景',
         refresh: '刷新',
-        refreshFolder: '刷新在线文件夹',
-        openCacheFolder: '打开缓存目录',
-        supportAuthor: '支持作者',
+        kabegameGallery: 'Kabegame 画廊',
+        syncKabegame: '同步 Kabegame',
         setSizeMode: '设置尺寸模式',
         setBlendMode: '设置混合模式',
         toggle: '切换',
         notSet: '未设置',
         none: '无',
-        petAssistant: '顶部小宠物',
-        togglePet: '开启/关闭',
-        selectPet: '选择宠物'
     }
 };
 
@@ -92,9 +60,9 @@ export class ConfigItem extends vscode.TreeItem {
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
         public readonly type: 'group' | 'setting' | 'action' | 'value',
-        public readonly key?: string, // Config key e.g. 'backgroundCover.opacity'
-        public readonly value?: any, // Value for 'value' type items
-        public readonly commandType?: ActionType, // For mapping to PickList actions
+        public readonly key?: string,
+        public readonly value?: any,
+        public readonly commandType?: ActionType,
         public readonly description?: string,
         public readonly icon?: string
     ) {
@@ -135,7 +103,7 @@ export class BackgroundCoverViewProvider implements vscode.TreeDataProvider<Conf
 
     getChildren(element?: ConfigItem): Thenable<ConfigItem[]> {
         const config = vscode.workspace.getConfiguration('backgroundCover');
-        
+
         if (!element) {
             return Promise.resolve(this.getRootItems(config));
         }
@@ -145,155 +113,82 @@ export class BackgroundCoverViewProvider implements vscode.TreeDataProvider<Conf
         }
 
         if (element.type === 'setting' && element.key === 'backgroundCover.sizeModel') {
-             return Promise.resolve(this.getSizeModeOptions(config));
+            return Promise.resolve(this.getSizeModeOptions(config));
         }
-        
+
         if (element.type === 'setting' && element.key === 'backgroundCover.blendModel') {
-             return Promise.resolve(this.getBlendModeOptions(config));
+            return Promise.resolve(this.getBlendModeOptions(config));
         }
 
         return Promise.resolve([]);
     }
 
     private getRootItems(config: vscode.WorkspaceConfiguration): ConfigItem[] {
-        const items: ConfigItem[] = [];
-
-        // 1. Image Source
-        items.push(new ConfigItem(t('imageSource'), vscode.TreeItemCollapsibleState.Expanded, 'group', undefined, undefined, undefined, undefined, 'file-media'));
-
-        // 2. Appearance
-        items.push(new ConfigItem(t('appearance'), vscode.TreeItemCollapsibleState.Expanded, 'group', undefined, undefined, undefined, undefined, 'paintcan'));
-
-        // 3. Auto Random
-        items.push(new ConfigItem(t('autoRandom'), vscode.TreeItemCollapsibleState.Collapsed, 'group', undefined, undefined, undefined, undefined, 'sync'));
-
-        // 4. Particle Effects
-        items.push(new ConfigItem(t('particleEffects'), vscode.TreeItemCollapsibleState.Collapsed, 'group', undefined, undefined, undefined, undefined, 'sparkle'));
-
-        // 5. Pet Assistant
-        items.push(new ConfigItem(t('petAssistant'), vscode.TreeItemCollapsibleState.Collapsed, 'group', undefined, undefined, undefined, undefined, 'github'));
-
-        // 6. Actions
-        items.push(new ConfigItem(t('actions'), vscode.TreeItemCollapsibleState.Expanded, 'group', undefined, undefined, undefined, undefined, 'tools'));
-
-        return items;
+        return [
+            new ConfigItem(t('imageSource'), vscode.TreeItemCollapsibleState.Expanded, 'group', undefined, undefined, undefined, undefined, 'file-media'),
+            new ConfigItem(t('appearance'), vscode.TreeItemCollapsibleState.Expanded, 'group', undefined, undefined, undefined, undefined, 'paintcan'),
+            new ConfigItem(t('actions'), vscode.TreeItemCollapsibleState.Expanded, 'group', undefined, undefined, undefined, undefined, 'tools'),
+        ];
     }
 
     private getGroupChildren(element: ConfigItem, config: vscode.WorkspaceConfiguration): ConfigItem[] {
         const items: ConfigItem[] = [];
 
-        const context = getContext();
-        const onlineFolder = context?.globalState.get<string>('backgroundCoverOnlineFolder');
-
         if (element.label === t('imageSource')) {
             const currentPath = config.get<string>('imagePath') || t('none');
             const displayPath = currentPath.length > 30 ? '...' + currentPath.substr(-30) : currentPath;
-            
-            items.push(new ConfigItem(t('currentImage'), vscode.TreeItemCollapsibleState.None, 'value', undefined, undefined, undefined, displayPath, 'file'));
-            
-            items.push(this.createActionItem(t('selectImage'), ActionType.SelectPictures, 'folder-opened'));
-            items.push(this.createActionItem(t('addDirectory'), ActionType.AddDirectory, 'file-directory'));
-            items.push(this.createActionItem(t('inputPath'), ActionType.InputPath, 'link'));
 
-            if (onlineFolder) {
-                const displayOnlineFolder = onlineFolder.length > 30 ? '...' + onlineFolder.substr(-30) : onlineFolder;
-                items.push(this.createActionItem(t('refreshFolder'), ActionType.RefreshOnlineFolder, 'cloud-download', displayOnlineFolder));
-            }
+            items.push(new ConfigItem(t('currentImage'), vscode.TreeItemCollapsibleState.None, 'value', undefined, undefined, undefined, displayPath, 'file'));
+            items.push(this.createActionItem(t('selectImage'), ActionType.SelectPictures, 'folder-opened'));
+            const galleryItem = new ConfigItem(
+                t('kabegameGallery'),
+                vscode.TreeItemCollapsibleState.None,
+                'action',
+                undefined, undefined, undefined,
+                undefined,
+                'book'
+            );
+            galleryItem.command = {
+                command: 'backgroundCover.home',
+                title: t('kabegameGallery'),
+            };
+            items.push(galleryItem);
         }
 
         if (element.label === t('appearance')) {
             items.push(this.createSettingItem(t('opacity'), 'backgroundCover.opacity', config.get('opacity'), ActionType.BackgroundOpacity, 'eye'));
             items.push(this.createSettingItem(t('blur'), 'backgroundCover.blur', config.get('blur'), ActionType.BackgroundBlur, 'star-half'));
-            
             items.push(new ConfigItem(t('sizeMode'), vscode.TreeItemCollapsibleState.Collapsed, 'setting', 'backgroundCover.sizeModel', config.get('sizeModel'), undefined, config.get('sizeModel'), 'layout'));
             items.push(new ConfigItem(t('blendMode'), vscode.TreeItemCollapsibleState.Collapsed, 'setting', 'backgroundCover.blendModel', config.get('blendModel'), undefined, config.get('blendModel'), 'symbol-color'));
         }
 
-        if (element.label === t('autoRandom')) {
-            const status = config.get<boolean>('autoStatus') || false;
-            items.push(this.createToggleItem(t('enabled'), 'backgroundCover.autoStatus', status, 'play-circle'));
-            items.push(this.createSettingItem(t('interval'), 'backgroundCover.autoInterval', config.get('autoInterval'), ActionType.AutoRandomSettings, 'watch'));
-            
-            const randomFolder = config.get<string>('randomImageFolder') || t('notSet');
-            const displayFolder = randomFolder.length > 30 ? '...' + randomFolder.substr(-30) : randomFolder;
-            items.push(this.createActionItem(t('sourceFolder'), ActionType.AddDirectory, 'folder', displayFolder));
-        }
-
-        if (element.label === t('particleEffects')) {
-            const context = getContext();
-            const enabled = context.globalState.get<boolean>('backgroundCoverParticleEffect', false);
-            const opacity = context.globalState.get<number>('backgroundCoverParticleOpacity', 0.6);
-            const color = context.globalState.get<string>('backgroundCoverParticleColor', '#ffffff');
-            const count = context.globalState.get<number>('backgroundCoverParticleCount', 50);
-
-            // Toggle
-            const toggleItem = new ConfigItem(
-                t('toggleParticles'), 
-                vscode.TreeItemCollapsibleState.None, 
-                'setting', 
-                'backgroundCoverParticleEffect', 
-                enabled, 
-                ActionType.ToggleParticle, 
-                enabled ? 'ON' : 'OFF', 
-                enabled ? 'check' : 'circle-outline'
-            );
-            toggleItem.command = {
-                command: 'backgroundCover.runAction',
-                title: t('toggleParticles'),
-                arguments: [ActionType.ToggleParticle]
-            };
-            items.push(toggleItem);
-
-            items.push(this.createSettingItem(t('particleOpacity'), 'backgroundCoverParticleOpacity', opacity, ActionType.ParticleOpacity, 'eye'));
-            items.push(this.createSettingItem(t('particleColor'), 'backgroundCoverParticleColor', color, ActionType.ParticleColor, 'symbol-color'));
-            items.push(this.createSettingItem(t('particleCount'), 'backgroundCoverParticleCount', count, ActionType.ParticleCount, 'multiple-windows'));
-        }
-
-        if (element.label === t('petAssistant')) {
-            const context = getContext();
-            const enabled = context.globalState.get<boolean>('backgroundCoverPetEnabled', true);
-            const currentPet = context.globalState.get<string>('backgroundCoverPetType', 'akita');
-
-            // Toggle
-            const toggleItem = new ConfigItem(
-                t('togglePet'), 
-                vscode.TreeItemCollapsibleState.None, 
-                'setting', 
-                'backgroundCoverPetEnabled', 
-                enabled, 
-                ActionType.TogglePet, 
-                enabled ? 'ON' : 'OFF', 
-                enabled ? 'check' : 'circle-outline'
-            );
-            toggleItem.command = {
-                command: 'backgroundCover.runAction',
-                title: t('togglePet'),
-                arguments: [ActionType.TogglePet]
-            };
-            items.push(toggleItem);
-
-            // Select Pet
-            items.push(this.createActionItem(t('selectPet'), ActionType.SelectPet, 'github', currentPet));
-        }
-
         if (element.label === t('actions')) {
+            const syncEnabled = config.get<boolean>('syncKabegame', true);
+            const syncItem = new ConfigItem(
+                t('syncKabegame'),
+                vscode.TreeItemCollapsibleState.None,
+                'action',
+                undefined, undefined, undefined,
+                syncEnabled ? 'ON' : 'OFF',
+                syncEnabled ? 'check' : 'circle-outline'
+            );
+            syncItem.command = {
+                command: 'backgroundCover.setConfig',
+                title: t('syncKabegame'),
+                arguments: ['backgroundCover.syncKabegame', !syncEnabled]
+            };
+            items.push(syncItem);
             items.push(this.createActionItem(t('clearBackground'), ActionType.CloseBackground, 'trash'));
             items.push(this.createActionItem(t('refresh'), ActionType.UpdateBackground, 'refresh'));
-            items.push(this.createActionItem(t('openCacheFolder'), ActionType.OpenCacheFolder, 'folder-opened'));
-            items.push(this.createActionItem(t('supportAuthor'), ActionType.OpenFilePath, 'heart', undefined, '//resources//support.jpg'));
         }
 
         return items;
     }
 
     private getSizeModeOptions(config: vscode.WorkspaceConfiguration): ConfigItem[] {
-        const modes = [
-            "cover", "repeat", "contain", "center", "not_center", 
-            "not_right_bottom", "not_right_top", "not_left", 
-            "not_right", "not_top", "not_bottom"
-        ];
+        const modes = ['cover', 'repeat', 'contain', 'center'];
         const current = config.get<string>('sizeModel');
-        
+
         return modes.map(mode => {
             const item = new ConfigItem(mode, vscode.TreeItemCollapsibleState.None, 'value', 'backgroundCover.sizeModel', mode, undefined, undefined, current === mode ? 'check' : 'circle-outline');
             item.command = {
@@ -308,7 +203,7 @@ export class BackgroundCoverViewProvider implements vscode.TreeDataProvider<Conf
     private getBlendModeOptions(config: vscode.WorkspaceConfiguration): ConfigItem[] {
         const modes = ["auto", "multiply", "lighten"];
         const current = config.get<string>('blendModel');
-        
+
         return modes.map(mode => {
             const item = new ConfigItem(mode, vscode.TreeItemCollapsibleState.None, 'value', 'backgroundCover.blendModel', mode, undefined, undefined, current === mode ? 'check' : 'circle-outline');
             item.command = {
@@ -336,16 +231,6 @@ export class BackgroundCoverViewProvider implements vscode.TreeDataProvider<Conf
             command: 'backgroundCover.runAction',
             title: label,
             arguments: [actionType]
-        };
-        return item;
-    }
-
-    private createToggleItem(label: string, key: string, value: boolean, icon: string): ConfigItem {
-        const item = new ConfigItem(label, vscode.TreeItemCollapsibleState.None, 'setting', key, value, undefined, value ? 'ON' : 'OFF', value ? 'check' : 'circle-outline');
-        item.command = {
-            command: 'backgroundCover.setConfig',
-            title: t('toggle'),
-            arguments: [key, !value]
         };
         return item;
     }

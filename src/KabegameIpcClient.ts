@@ -11,49 +11,69 @@ export interface ImageInfo {
     id: string;
     localPath: string;
     thumbnailPath?: string;
-    url?: string;
-    pluginId: string;
-    crawledAt: number;
-    taskId?: string;
+    /** 格式键，例如 `image/jpg`、`video/mp4`。 */
+    type?: string;
 }
 
-export interface AlbumBrowseInfo {
+export interface AlbumInfo {
     id: string;
     name: string;
+    /** `normal` / `label_dir` / `label` / `local_folder` 等。 */
+    type: string;
     imageCount: number;
-    previewImages: ImageInfo[];
 }
 
-export interface StorageAlbum {
-    id: string;
+/** PathQL 节点自身；`total` 为该节点下的行总数（可能缺省）。 */
+export interface PathqlEntry {
     name: string;
-    parentId?: string;
+    total?: number | null;
 }
 
-export type GalleryBrowseEntry =
-    | { kind: 'image'; image: ImageInfo }
-    | { kind: 'album'; album: AlbumBrowseInfo }
-    | { kind: 'dir'; name: string };
+type Row = Record<string, unknown>;
 
-export interface GalleryBrowseResult {
-    total: number;
-    baseOffset: number;
-    rangeTotal: number;
-    entries: GalleryBrowseEntry[];
+function rowString(row: Row, key: string): string | undefined {
+    const v = row[key];
+    if (typeof v === 'string') { return v; }
+    if (typeof v === 'number' || typeof v === 'bigint') { return String(v); }
+    return undefined;
+}
+
+function rowNumber(row: Row, key: string): number {
+    const n = Number(row[key]);
+    return Number.isFinite(n) ? n : 0;
+}
+
+export function rowToImageInfo(row: Row): ImageInfo {
+    return {
+        id: rowString(row, 'id') ?? '',
+        localPath: rowString(row, 'local_path') ?? '',
+        thumbnailPath: rowString(row, 'thumbnail_path'),
+        type: rowString(row, 'type'),
+    };
+}
+
+export function rowToAlbumInfo(row: Row): AlbumInfo {
+    return {
+        id: rowString(row, 'id') ?? '',
+        name: rowString(row, 'name') ?? '',
+        type: rowString(row, 'type') ?? 'normal',
+        imageCount: rowNumber(row, 'image_count'),
+    };
 }
 
 // ---- IPC Client ----
 
-const WINDOWS_PIPE = '\\\\.\\pipe\\kabegame-daemon';
+const WINDOWS_PIPE = '\\\\.\\pipe\\kabegame-app';
 const UNIX_SOCKET = () => path.join(os.tmpdir(), 'Kabegame', 'kabegame.sock');
 
 const SUBSCRIBE_KINDS = [
     'setting-change',
     'images-change',
+    'album-images-change',
     'album-added',
     'album-changed',
     'album-deleted',
-    'daemon-shutdown',
+    'app-shutdown',
 ];
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
@@ -110,7 +130,7 @@ export class KabegameIpcClient implements vscode.Disposable {
     async request(cmd: string, extra?: object): Promise<unknown> {
         return new Promise((resolve, reject) => {
             if (!this.socket || !this.connected) {
-                reject(new Error('Not connected to Kabegame daemon'));
+                reject(new Error('Not connected to Kabegame'));
                 return;
             }
             const requestId = this.nextRequestId++;
@@ -129,54 +149,29 @@ export class KabegameIpcClient implements vscode.Disposable {
         });
     }
 
+    /** 拉取 PathQL 数据行（`images://...` / `albums://...`）。 */
+    async pathqlFetch(path: string): Promise<Row[]> {
+        const resp = await this.request('pathql-fetch', { path });
+        return Array.isArray(resp) ? resp as Row[] : [];
+    }
+
+    /** 查询 PathQL 节点自身，主要用来取 `total`。 */
+    async pathqlEntry(path: string): Promise<PathqlEntry | null> {
+        const resp = await this.request('pathql-entry', { path });
+        return resp && typeof resp === 'object' ? resp as PathqlEntry : null;
+    }
+
+    /** 按 id 取图片本地路径；与主程序前端 `fetchImageById` 走同一个 `gallery/by_id` provider。 */
     async getImageLocalPath(imageId: string): Promise<string | null> {
+        const id = imageId.trim();
+        if (!id) { return null; }
         try {
-            const resp = await this.request('storage-get-image-by-id', { image_id: imageId }) as Record<string, unknown>;
-            if (resp && typeof resp === 'object') {
-                const localPath = (resp as Record<string, unknown>)['localPath'];
-                if (typeof localPath === 'string' && localPath) {
-                    return localPath;
-                }
-            }
-            return null;
+            const rows = await this.pathqlFetch(`images://gallery/by_id/${encodeURIComponent(id)}`);
+            const localPath = rows[0] ? rowToImageInfo(rows[0]).localPath : '';
+            return localPath || null;
         } catch {
             return null;
         }
-    }
-
-    async galleryBrowse(providerPath: string): Promise<GalleryBrowseResult> {
-        const resp = await this.request('gallery-browse-provider', { path: providerPath }) as GalleryBrowseResult;
-        return resp;
-    }
-
-    async getAlbums(): Promise<StorageAlbum[]> {
-        try {
-            const resp = await this.request('storage-get-albums') as unknown;
-            const albums = Array.isArray(resp)
-                ? resp
-                : (resp as Record<string, unknown> | undefined)?.albums;
-            if (!Array.isArray(albums)) { return []; }
-            return albums
-                .map((a: unknown) => {
-                    const row = a as Record<string, unknown>;
-                    return {
-                        id: String(row?.id ?? ''),
-                        name: String(row?.name ?? ''),
-                        parentId: row?.parentId != null ? String(row.parentId) : undefined,
-                    };
-                })
-                .filter((a: StorageAlbum) => a.id.length > 0);
-        } catch {
-            return [];
-        }
-    }
-
-    async getGalleryPageSize(): Promise<number> {
-        try {
-            const resp = await this.request('settings-get-gallery-page-size') as unknown;
-            const n = Number(resp);
-            return [100, 500, 1000].includes(n) ? n : 100;
-        } catch { return 100; }
     }
 
     /** Sets Kabegame current wallpaper by image id; daemon emits setting-change → extension resolves path. */
@@ -334,6 +329,7 @@ export class KabegameIpcClient implements vscode.Disposable {
                 break;
             }
             case 'images-change':
+            case 'album-images-change':
                 this._onImagesChange.fire();
                 break;
             case 'album-added':
@@ -341,7 +337,7 @@ export class KabegameIpcClient implements vscode.Disposable {
             case 'album-deleted':
                 this._onAlbumChange.fire();
                 break;
-            case 'daemon-shutdown':
+            case 'app-shutdown':
                 this.onDisconnected();
                 break;
         }

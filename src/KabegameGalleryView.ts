@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as os from 'os';
 import * as crypto from 'crypto';
-import { KabegameIpcClient, GalleryBrowseEntry, GalleryBrowseResult, StorageAlbum } from './KabegameIpcClient';
+import { KabegameIpcClient, AlbumInfo, ImageInfo, rowToAlbumInfo, rowToImageInfo } from './KabegameIpcClient';
 
 /** CBOR may decode >53-bit integers as BigInt; webview postMessage uses JSON.stringify which throws on BigInt. */
 function sanitizeBigInt(val: unknown): unknown {
@@ -17,52 +17,57 @@ function sanitizeBigInt(val: unknown): unknown {
     return val;
 }
 
-/** Split "album/abc/3" → { basePath: "album/abc", page: 3 }. */
-function parsePath(path: string): { basePath: string; page: number } {
-    const m = path.match(/^(.*?)\/(\d+)$/);
-    return m ? { basePath: m[1], page: parseInt(m[2]) || 1 } : { basePath: path, page: 1 };
+const IMAGE_PAGE_SIZE = 100;
+const ALBUM_PAGE_SIZE = 100;
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v|mkv)$/i;
+
+/** 面包屑一项：`albumId` 为空表示首页（全部图片 + 根画册）。 */
+interface BreadcrumbEntry { label: string; albumId?: string; }
+
+/** 一个位置在 PathQL 上的查询路径：图片走 `images://gallery/hide/...`（排除隐藏图），画册按目录分页查 `albums://`。 */
+function locationPaths(albumId?: string): { imageCount: string; imageList: string; albums: string } {
+    if (albumId) {
+        const id = encodeURIComponent(albumId);
+        const images = `images://gallery/hide/album/${id}`;
+        return { imageCount: images, imageList: images, albums: `albums://parent/${id}` };
+    }
+    // 首页最新优先
+    return {
+        imageCount: 'images://gallery/hide/all',
+        imageList: 'images://gallery/hide/all/desc',
+        albums: 'albums://roots',
+    };
 }
 
-/** Breadcrumb entry — stores location only, never a page number. */
-interface BreadcrumbEntry { label: string; basePath: string; }
+interface GalleryData {
+    imageTotal: number;
+    page: number;
+    pageSize: number;
+    images: ImageInfo[];
+    albumTotal: number;
+    albumPage: number;
+    albumPageSize: number;
+    albums: AlbumInfo[];
+}
 
 export class KabegameGalleryView implements vscode.WebviewViewProvider, vscode.Disposable {
     private _view?: vscode.WebviewView;
-    /** Location stack — each entry is an album/root location, no page. */
-    private _breadcrumb: BreadcrumbEntry[] = [{ label: 'Home', basePath: 'all' }];
-    /** Current page within the top-most breadcrumb location. */
+    private _breadcrumb: BreadcrumbEntry[] = [{ label: 'Home' }];
+    /** 当前位置的图片页码。 */
     private _currentPage: number = 1;
-    private _albumById: Map<string, StorageAlbum> = new Map();
-    private _albumChildren: Map<string | null, StorageAlbum[]> = new Map();
-    private _pageSize: number = 100;
+    /** 当前位置的子画册页码。 */
+    private _albumPage: number = 1;
+    /** 丢弃过期的加载结果（快速翻页/切换位置时）。 */
+    private _loadSeq: number = 0;
     private _disposables: vscode.Disposable[] = [];
 
     constructor(private readonly ipcClient: KabegameIpcClient) {
         this._disposables.push(
             ipcClient.onImagesChange(() => this.refresh()),
-            ipcClient.onAlbumChange(async () => {
-                await this.refreshAlbumTree();
-                this.refresh();
-            }),
+            ipcClient.onAlbumChange(() => this.refresh()),
             ipcClient.onConnectionChange((connected) => {
                 this._view?.webview.postMessage({ type: 'connection-status', connected });
-                if (connected) {
-                    // Load gallery immediately — do not block on album tree or page size
-                    this.loadAndSend(this.currentFullPath());
-                    // Fetch metadata in background; re-render once both complete
-                    Promise.all([
-                        this.refreshAlbumTree(),
-                        this.ipcClient.getGalleryPageSize().then(ps => { this._pageSize = ps; }),
-                    ]).then(() => {
-                        this.loadAndSend(this.currentFullPath());
-                    }).catch(() => { /* ignore — old daemon may not support these commands */ });
-                }
-            }),
-            ipcClient.onSettingChange((changes) => {
-                if ('galleryPageSize' in changes) {
-                    const n = Number(changes['galleryPageSize']);
-                    if ([100, 500, 1000].includes(n)) { this._pageSize = n; }
-                }
+                if (connected) { this.refresh(); }
             }),
         );
     }
@@ -92,7 +97,8 @@ export class KabegameGalleryView implements vscode.WebviewViewProvider, vscode.D
         webviewView.webview.html = this.getHtml(webviewView.webview);
 
         webviewView.webview.onDidReceiveMessage(async (msg: {
-            type: string; path?: string; imageId?: string; index?: number; url?: string;
+            type: string; imageId?: string; albumId?: string; name?: string;
+            index?: number; page?: number; url?: string;
         }) => {
             switch (msg.type) {
                 case 'ready':
@@ -101,15 +107,30 @@ export class KabegameGalleryView implements vscode.WebviewViewProvider, vscode.D
                         type: 'connection-status',
                         connected: this.ipcClient.isConnected,
                     });
-                    if (this.ipcClient.isConnected) {
-                        this.loadAndSend(this.currentFullPath());
+                    if (this.ipcClient.isConnected) { this.refresh(); }
+                    break;
+                case 'open-album':
+                    if (msg.albumId) {
+                        this._breadcrumb.push({ label: msg.name || 'Album', albumId: msg.albumId });
+                        this._currentPage = 1;
+                        this._albumPage = 1;
+                        this.refresh();
                     }
                     break;
-                case 'navigate':
-                    if (msg.path) { await this.navigate(msg.path); }
+                case 'page':
+                    if (typeof msg.page === 'number') {
+                        this._currentPage = Math.max(1, Math.floor(msg.page));
+                        this.refresh();
+                    }
+                    break;
+                case 'album-page':
+                    if (typeof msg.page === 'number') {
+                        this._albumPage = Math.max(1, Math.floor(msg.page));
+                        this.refresh();
+                    }
                     break;
                 case 'navigate-crumb':
-                    if (typeof msg.index === 'number') { await this.navigateToCrumb(msg.index); }
+                    if (typeof msg.index === 'number') { this.navigateToCrumb(msg.index); }
                     break;
                 case 'set-background':
                     if (msg.imageId) {
@@ -142,126 +163,91 @@ export class KabegameGalleryView implements vscode.WebviewViewProvider, vscode.D
     }
 
     home(): void {
-        this._breadcrumb = [{ label: 'Home', basePath: 'all' }];
+        this._breadcrumb = [{ label: 'Home' }];
         this._currentPage = 1;
-        this.loadAndSend('all/1');
+        this._albumPage = 1;
+        this.refresh();
     }
 
     refresh(): void {
-        this.loadAndSend(this.currentFullPath());
+        void this.loadAndSend();
     }
 
-    /** Navigate to a provider path from the webview (page change or new location). */
-    async navigate(providerPath: string): Promise<void> {
-        const { basePath, page } = parsePath(providerPath);
-        const currentBase = this._breadcrumb[this._breadcrumb.length - 1].basePath;
-
-        if (basePath === currentBase) {
-            // Same location, just a page change — update page, no new breadcrumb entry
-            this._currentPage = page;
-        } else {
-            // New location (entering an album or going back to root) — push breadcrumb
-            const albumMatch = basePath.match(/^album\/([^/]+)$/);
-            const label = albumMatch
-                ? (this._albumById.get(albumMatch[1])?.name ?? 'Album')
-                : 'Home';
-            this._breadcrumb.push({ label, basePath });
-            this._currentPage = 1;
-        }
-        await this.loadAndSend(this.currentFullPath());
-    }
-
-    async navigateToCrumb(index: number): Promise<void> {
+    navigateToCrumb(index: number): void {
         if (index < 0 || index >= this._breadcrumb.length) { return; }
         this._breadcrumb = this._breadcrumb.slice(0, index + 1);
         this._currentPage = 1;
-        await this.loadAndSend(this.currentFullPath());
+        this._albumPage = 1;
+        this.refresh();
     }
 
-    /** Returns the full provider path for the current location + page. */
-    private currentFullPath(): string {
-        return this._breadcrumb[this._breadcrumb.length - 1].basePath + '/' + this._currentPage;
-    }
-
-    private async refreshAlbumTree(): Promise<void> {
-        const albums = await this.ipcClient.getAlbums();
-        this._albumById.clear();
-        this._albumChildren.clear();
-        for (const a of albums) {
-            this._albumById.set(a.id, a);
-            const parentKey: string | null = a.parentId ?? null;
-            if (!this._albumChildren.has(parentKey)) { this._albumChildren.set(parentKey, []); }
-            this._albumChildren.get(parentKey)!.push(a);
-        }
-    }
-
-    private async loadAndSend(providerPath: string): Promise<void> {
-        if (!this._view) { return; }
+    private async loadAndSend(): Promise<void> {
+        if (!this._view || !this.ipcClient.isConnected) { return; }
+        const seq = ++this._loadSeq;
+        const albumId = this._breadcrumb[this._breadcrumb.length - 1].albumId;
         this._view.webview.postMessage({ type: 'loading', loading: true });
         try {
-            const raw = await this.ipcClient.galleryBrowse(providerPath);
-            const result: GalleryBrowseResult = raw ?? { total: 0, baseOffset: 0, rangeTotal: 0, entries: [] };
-            if (!Array.isArray(result.entries)) { result.entries = []; }
-
-            // Inject child albums from the in-memory tree (no extra IPC call)
-            // basePath for current location: "all" → root albums (null key), "album/id" → children of id
-            const { basePath } = parsePath(providerPath);
-            const albumParentMatch = basePath.match(/^album\/([^/]+)$/);
-            const parentKey: string | null = albumParentMatch ? albumParentMatch[1] : null;
-            const childAlbums = this._albumChildren.get(parentKey) ?? [];
-            const albumEntries: GalleryBrowseEntry[] = childAlbums.map(a => ({
-                kind: 'album' as const,
-                album: { id: a.id, name: a.name, imageCount: 0, previewImages: [] },
-            }));
-            result.entries = [...albumEntries, ...result.entries];
-
-            // Empty page redirect: if non-album entries are absent but total > 0, go to page 1
-            const nonAlbumCount = result.entries.filter(e => e.kind !== 'album').length;
-            if (nonAlbumCount === 0 && result.total > 0 && this._currentPage !== 1) {
-                this._currentPage = 1;
-                return this.loadAndSend(this.currentFullPath());
+            const data = await this.fetchLocation(albumId);
+            if (seq !== this._loadSeq || !this._view) { return; }
+            // 越界页（例如删图后最后一页变空）收回到最后一页
+            const lastPage = Math.max(1, Math.ceil(data.imageTotal / IMAGE_PAGE_SIZE));
+            const lastAlbumPage = Math.max(1, Math.ceil(data.albumTotal / ALBUM_PAGE_SIZE));
+            if (this._currentPage > lastPage || this._albumPage > lastAlbumPage) {
+                this._currentPage = Math.min(this._currentPage, lastPage);
+                this._albumPage = Math.min(this._albumPage, lastAlbumPage);
+                return this.loadAndSend();
             }
-
-            const thumbnailUris = this.buildThumbnailUris(result);
-            const safeResult = sanitizeBigInt(result) as GalleryBrowseResult;
             this._view.webview.postMessage({
                 type: 'gallery-data',
-                path: providerPath,
-                result: safeResult,
-                thumbnailUris,
-                breadcrumb: this._breadcrumb,
-                pageSize: this._pageSize,
+                data: sanitizeBigInt(data),
+                thumbnailUris: this.buildThumbnailUris(data.images),
+                breadcrumb: this._breadcrumb.map(c => c.label),
             });
         } catch (e) {
-            this._view.webview.postMessage({ type: 'error', message: String(e) });
+            if (seq === this._loadSeq) {
+                this._view?.webview.postMessage({ type: 'error', message: String(e) });
+            }
         } finally {
-            this._view?.webview.postMessage({ type: 'loading', loading: false });
+            if (seq === this._loadSeq) {
+                this._view?.webview.postMessage({ type: 'loading', loading: false });
+            }
         }
     }
 
-    private buildThumbnailUris(result: GalleryBrowseResult): Record<string, string> {
+    private async fetchLocation(albumId?: string): Promise<GalleryData> {
+        const paths = locationPaths(albumId);
+        const page = this._currentPage;
+        const albumPage = this._albumPage;
+        const [imageEntry, imageRows, albumEntry, albumRows] = await Promise.all([
+            this.ipcClient.pathqlEntry(paths.imageCount),
+            this.ipcClient.pathqlFetch(`${paths.imageList}/x${IMAGE_PAGE_SIZE}x/${page}`),
+            this.ipcClient.pathqlEntry(paths.albums),
+            // `~~/images/hide` 在分页之后按画册 GROUP BY，给出子树（排除隐藏图）的图片数
+            this.ipcClient.pathqlFetch(`${paths.albums}/x${ALBUM_PAGE_SIZE}x/${albumPage}/~~/images/hide`),
+        ]);
+        const images = imageRows.map(rowToImageInfo).filter(i => i.id);
+        const albums = albumRows.map(rowToAlbumInfo).filter(a => a.id);
+        return {
+            imageTotal: Number(imageEntry?.total ?? images.length) || 0,
+            page,
+            pageSize: IMAGE_PAGE_SIZE,
+            images,
+            albumTotal: Number(albumEntry?.total ?? albums.length) || 0,
+            albumPage,
+            albumPageSize: ALBUM_PAGE_SIZE,
+            albums,
+        };
+    }
+
+    private buildThumbnailUris(images: ImageInfo[]): Record<string, string> {
         const uris: Record<string, string> = {};
         if (!this._view) { return uris; }
-        for (const entry of result.entries) {
-            if (entry.kind === 'image') {
-                const src = entry.image.thumbnailPath || entry.image.localPath;
-                if (src) {
-                    try {
-                        uris[entry.image.id] = this._view.webview.asWebviewUri(
-                            vscode.Uri.file(src)
-                        ).toString();
-                    } catch { /* skip */ }
-                }
-            } else if (entry.kind === 'album' && entry.album.previewImages && entry.album.previewImages.length > 0) {
-                const src = entry.album.previewImages[0].thumbnailPath || entry.album.previewImages[0].localPath;
-                if (src) {
-                    try {
-                        uris['album-' + entry.album.id] = this._view.webview.asWebviewUri(
-                            vscode.Uri.file(src)
-                        ).toString();
-                    } catch { /* skip */ }
-                }
-            }
+        for (const image of images) {
+            const src = image.thumbnailPath || image.localPath;
+            if (!src) { continue; }
+            try {
+                uris[image.id] = this._view.webview.asWebviewUri(vscode.Uri.file(src)).toString();
+            } catch { /* skip */ }
         }
         return uris;
     }
@@ -271,6 +257,7 @@ export class KabegameGalleryView implements vscode.WebviewViewProvider, vscode.D
         const csp = [
             `default-src 'none'`,
             `img-src ${webview.cspSource} data:`,
+            `media-src ${webview.cspSource}`,
             `style-src 'unsafe-inline'`,
             `script-src 'nonce-${nonce}'`,
         ].join('; ');
@@ -301,10 +288,6 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
 #dc-download-btn:hover { background: var(--vscode-button-hoverBackground); }
 #gallery { padding: 6px 4px; }
 .section-label { font-size: 11px; color: var(--vscode-descriptionForeground); padding: 4px 4px 2px; text-transform: uppercase; letter-spacing: 0.05em; }
-.dirs-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 4px 6px; }
-.dir-card { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--vscode-sideBarSectionHeader-border); border-radius: 4px; cursor: pointer; background: var(--vscode-list-hoverBackground); font-size: 12px; min-width: 80px; }
-.dir-card:hover { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
-.dir-icon { font-size: 14px; }
 .album-thumb { width: 40px; height: 28px; object-fit: cover; border-radius: 2px; flex-shrink: 0; background: var(--vscode-editor-background); }
 .albums-row { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 4px 6px; }
 .album-card { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--vscode-sideBarSectionHeader-border); border-radius: 4px; cursor: pointer; background: var(--vscode-list-hoverBackground); font-size: 12px; }
@@ -315,12 +298,13 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
 .image-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; padding: 2px 4px; }
 .image-card { position: relative; aspect-ratio: 16/9; overflow: hidden; cursor: pointer; border-radius: 3px; background: var(--vscode-editor-background); border: 2px solid transparent; }
 .image-card:hover { border-color: var(--vscode-focusBorder); }
-.image-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.image-card img, .image-card video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .image-card .placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 20px; color: var(--vscode-descriptionForeground); }
 .pagination { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 4px; font-size: 12px; flex-wrap: wrap; }
 .page-btn { background: none; border: 1px solid var(--vscode-button-secondaryBackground); color: var(--vscode-foreground); padding: 2px 10px; cursor: pointer; border-radius: 3px; }
 .page-btn:disabled { opacity: 0.4; cursor: default; }
 .page-input { width: 48px; text-align: center; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-sideBarSectionHeader-border)); border-radius: 3px; padding: 2px 4px; font-size: 12px; }
+.more-msg { font-size: 11px; color: var(--vscode-descriptionForeground); padding: 0 4px 6px; }
 .error-msg { padding: 12px 8px; color: var(--vscode-errorForeground); font-size: 12px; }
 .empty-msg { padding: 24px 8px; text-align: center; color: var(--vscode-descriptionForeground); font-size: 12px; }
 </style>
@@ -340,11 +324,8 @@ body { font-family: var(--vscode-font-family); font-size: var(--vscode-font-size
 
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
-let currentResult = null;
-let currentPath = 'all/1';
-let currentBreadcrumb = [{ label: 'Home', basePath: 'all' }];
+const VIDEO_EXT_RE = ${VIDEO_EXT_RE.toString()};
 let thumbnailUris = {};
-let pageSize = 100;
 
 const gallery = document.getElementById('gallery');
 const statusEl = document.getElementById('status');
@@ -371,13 +352,9 @@ window.addEventListener('message', event => {
             }
             break;
         case 'gallery-data':
-            currentResult = msg.result;
-            currentPath = msg.path;
             thumbnailUris = msg.thumbnailUris || {};
-            currentBreadcrumb = msg.breadcrumb || currentBreadcrumb;
-            pageSize = msg.pageSize || 100;
-            renderBreadcrumb(currentBreadcrumb);
-            renderGallery(msg.result);
+            renderBreadcrumb(msg.breadcrumb || ['Home']);
+            renderGallery(msg.data);
             break;
         case 'error':
             gallery.innerHTML = '<div class="error-msg">Error: ' + escHtml(msg.message) + '</div>';
@@ -398,9 +375,9 @@ function setConnected(connected) {
     }
 }
 
-function renderBreadcrumb(crumbs) {
+function renderBreadcrumb(labels) {
     breadcrumbEl.innerHTML = '';
-    crumbs.forEach(function(crumb, index) {
+    labels.forEach(function(label, index) {
         if (index > 0) {
             var sep = document.createElement('span');
             sep.className = 'crumb-sep';
@@ -408,16 +385,14 @@ function renderBreadcrumb(crumbs) {
             breadcrumbEl.appendChild(sep);
         }
         var el = document.createElement('span');
-        var isCurrent = index === crumbs.length - 1;
+        var isCurrent = index === labels.length - 1;
         el.className = isCurrent ? 'crumb-current' : 'crumb';
-        el.title = crumb.label;
-        el.textContent = crumb.label;
+        el.title = label;
+        el.textContent = label;
         if (!isCurrent) {
-            (function(i) {
-                el.addEventListener('click', function() {
-                    vscode.postMessage({ type: 'navigate-crumb', index: i });
-                });
-            })(index);
+            el.addEventListener('click', function() {
+                vscode.postMessage({ type: 'navigate-crumb', index: index });
+            });
         }
         breadcrumbEl.appendChild(el);
     });
@@ -427,88 +402,85 @@ function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-function renderGallery(result) {
-    if (!result) { gallery.innerHTML = '<div class="empty-msg">No results.</div>'; return; }
-    var entries = result.entries || [];
+/** 分页条；kind 为 'page'（图片）或 'album-page'（子画册）。 */
+function paginationHtml(kind, page, totalPages, withJump) {
+    if (totalPages <= 1) { return ''; }
+    var html = '<div class="pagination">'
+        + '<button class="page-btn" ' + (page <= 1 ? 'disabled' : 'data-' + kind + '="' + (page - 1) + '"') + '>&#8249;</button>'
+        + '<span>Page ' + page + ' / ' + totalPages + '</span>'
+        + '<button class="page-btn" ' + (page >= totalPages ? 'disabled' : 'data-' + kind + '="' + (page + 1) + '"') + '>&#8250;</button>';
+    if (withJump) {
+        html += '<input type="number" class="page-input" id="page-jump" min="1" max="' + totalPages + '" value="' + page + '">'
+            + '<button class="page-btn" id="jump-btn">Go</button>';
+    }
+    return html + '</div>';
+}
 
-    var dirs = entries.filter(function(e) { return e.kind === 'dir'; });
-    var albums = entries.filter(function(e) { return e.kind === 'album'; });
-    var images = entries.filter(function(e) { return e.kind === 'image'; });
-
+function renderGallery(data) {
+    if (!data) { gallery.innerHTML = '<div class="empty-msg">No results.</div>'; return; }
+    var albums = data.albums || [];
+    var images = data.images || [];
     var html = '';
 
-    if (dirs.length > 0) {
-        html += '<div class="section-label">Folders</div><div class="dirs-row">';
-        dirs.forEach(function(e) {
-            html += '<div class="dir-card" data-nav="' + escHtml(buildSubPath(currentPath, e.name)) + '">'
-                + '<span class="dir-icon">&#128193;</span>'
-                + '<span>' + escHtml(e.name) + '</span></div>';
-        });
-        html += '</div>';
-    }
-
     if (albums.length > 0) {
-        html += '<div class="section-label">Albums</div><div class="albums-row">';
-        albums.forEach(function(e) {
-            var a = e.album;
-            var thumbUri = thumbnailUris['album-' + a.id];
-            var thumbHtml = thumbUri
-                ? '<img class="album-thumb" src="' + escHtml(thumbUri) + '" alt="">'
-                : '<span class="album-icon">&#128447;</span>';
+        var albumPages = Math.max(1, Math.ceil(data.albumTotal / data.albumPageSize));
+        html += '<div class="section-label">Albums (' + data.albumTotal + ')</div><div class="albums-row">';
+        albums.forEach(function(a) {
             var countHtml = a.imageCount > 0
                 ? '<div class="album-count">' + a.imageCount + ' images</div>'
                 : '';
-            html += '<div class="album-card" data-nav="album/' + escHtml(a.id) + '/1">'
-                + thumbHtml
+            html += '<div class="album-card" data-album-id="' + escHtml(a.id) + '" data-album-name="' + escHtml(a.name) + '">'
+                + '<span class="album-icon">' + (a.type === 'label_dir' ? '&#128193;' : '&#128447;') + '</span>'
                 + '<span><div class="album-name">' + escHtml(a.name) + '</div>'
                 + countHtml + '</span></div>';
         });
         html += '</div>';
+        html += paginationHtml('album-page', data.albumPage, albumPages, false);
     }
 
-    var totalPages = 1;
+    var totalPages = Math.max(1, Math.ceil(data.imageTotal / data.pageSize));
     if (images.length > 0) {
-        var pageNum = extractPageNum(currentPath);
-        totalPages = Math.max(1, Math.ceil(result.total / pageSize));
-        html += '<div class="section-label">Images (' + result.total + ')</div><div class="image-grid">';
-        images.forEach(function(e) {
-            var img = e.image;
+        html += '<div class="section-label">Images (' + data.imageTotal + ')</div><div class="image-grid">';
+        images.forEach(function(img) {
             var uri = thumbnailUris[img.id];
-            if (uri) {
-                html += '<div class="image-card" data-id="' + escHtml(img.id) + '">'
-                    + '<img src="' + escHtml(uri) + '" loading="lazy" alt="">'
-                    + '</div>';
+            var inner;
+            if (!uri) {
+                inner = '<div class="placeholder">&#128444;</div>';
+            } else if (VIDEO_EXT_RE.test(img.thumbnailPath || img.localPath || '')) {
+                // 桌面端视频预览图是 MP4，<img> 显示不了
+                inner = '<video src="' + escHtml(uri) + '" muted loop preload="metadata"></video>';
             } else {
-                html += '<div class="image-card" data-id="' + escHtml(img.id) + '">'
-                    + '<div class="placeholder">&#128444;</div>'
-                    + '</div>';
+                inner = '<img src="' + escHtml(uri) + '" loading="lazy" alt="">';
             }
+            html += '<div class="image-card" data-id="' + escHtml(img.id) + '">' + inner + '</div>';
         });
         html += '</div>';
-
-        if (totalPages > 1) {
-            var prevPath = buildPagePath(currentPath, pageNum - 1);
-            var nextPath = buildPagePath(currentPath, pageNum + 1);
-            html += '<div class="pagination">'
-                + '<button class="page-btn" ' + (pageNum <= 1 ? 'disabled' : 'data-nav="' + escHtml(prevPath) + '"') + '>&#8249;</button>'
-                + '<span>Page ' + pageNum + ' / ' + totalPages + '</span>'
-                + '<button class="page-btn" ' + (pageNum >= totalPages ? 'disabled' : 'data-nav="' + escHtml(nextPath) + '"') + '>&#8250;</button>'
-                + '<input type="number" class="page-input" id="page-jump" min="1" max="' + totalPages + '" value="' + pageNum + '">'
-                + '<button class="page-btn" id="jump-btn">Go</button>'
-                + '</div>';
-        }
+        html += paginationHtml('page', data.page, totalPages, true);
     }
 
-    if (!dirs.length && !albums.length && !images.length) {
+    if (!albums.length && !images.length) {
         html = '<div class="empty-msg">No images found.</div>';
     }
 
     gallery.innerHTML = html;
 
-    gallery.querySelectorAll('[data-nav]').forEach(function(el) {
+    gallery.querySelectorAll('[data-album-id]').forEach(function(el) {
         el.addEventListener('click', function() {
-            var navPath = el.getAttribute('data-nav');
-            if (navPath) { vscode.postMessage({ type: 'navigate', path: navPath }); }
+            vscode.postMessage({
+                type: 'open-album',
+                albumId: el.getAttribute('data-album-id'),
+                name: el.getAttribute('data-album-name'),
+            });
+        });
+    });
+    gallery.querySelectorAll('[data-page]').forEach(function(el) {
+        el.addEventListener('click', function() {
+            vscode.postMessage({ type: 'page', page: Number(el.getAttribute('data-page')) });
+        });
+    });
+    gallery.querySelectorAll('[data-album-page]').forEach(function(el) {
+        el.addEventListener('click', function() {
+            vscode.postMessage({ type: 'album-page', page: Number(el.getAttribute('data-album-page')) });
         });
     });
     gallery.querySelectorAll('.image-card[data-id]').forEach(function(el) {
@@ -516,15 +488,19 @@ function renderGallery(result) {
             var imageId = el.getAttribute('data-id');
             if (imageId) { vscode.postMessage({ type: 'set-background', imageId: imageId }); }
         });
+        var video = el.querySelector('video');
+        if (video) {
+            el.addEventListener('mouseenter', function() { video.play().catch(function() {}); });
+            el.addEventListener('mouseleave', function() { video.pause(); });
+        }
     });
 
     var jumpBtn = gallery.querySelector('#jump-btn');
     if (jumpBtn) {
-        var tp = totalPages;
         jumpBtn.addEventListener('click', function() {
             var input = gallery.querySelector('#page-jump');
-            var page = Math.max(1, Math.min(parseInt(input ? input.value : '1') || 1, tp));
-            vscode.postMessage({ type: 'navigate', path: buildPagePath(currentPath, page) });
+            var page = Math.max(1, Math.min(parseInt(input ? input.value : '1') || 1, totalPages));
+            vscode.postMessage({ type: 'page', page: page });
         });
         var jumpInput = gallery.querySelector('#page-jump');
         if (jumpInput) {
@@ -533,20 +509,6 @@ function renderGallery(result) {
             });
         }
     }
-}
-
-function extractPageNum(p) {
-    var m = p.match(/(\\d+)$/);
-    return m ? (parseInt(m[1]) || 1) : 1;
-}
-
-function buildSubPath(currentP, name) {
-    var base = currentP.replace(/\\/[0-9]+$/, '');
-    return base + '/' + name + '/1';
-}
-
-function buildPagePath(currentP, page) {
-    return currentP.replace(/[0-9]+$/, String(Math.max(1, page)));
 }
 
 vscode.postMessage({ type: 'ready' });

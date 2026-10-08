@@ -704,7 +704,8 @@ export class FileDom {
                 url: rawPath,
                 opacity: opacity,
                 blur: this.blur,
-                blendMode: this.blendModel
+                blendMode: this.blendModel,
+                playbackRate: Math.min(3, Math.max(0.25, Number(this.workConfig.get('videoPlaybackRate', 1)) || 1))
             };
             // Escape backticks and ${} for template literal safety, but keep backslashes as is (JSON stringified)
             const jsonConfig = JSON.stringify(config)
@@ -866,6 +867,11 @@ export class FileDom {
                 video.style.opacity = config.opacity + '';
                 video.style.filter = 'blur(' + config.blur + 'px)';
                 video.style.mixBlendMode = config.blendMode;
+
+                // 换 src 会把 playbackRate 重置为 defaultPlaybackRate，两者都设
+                const rate = Number(config.playbackRate) || 1;
+                video.defaultPlaybackRate = rate;
+                video.playbackRate = rate;
                 
                 if (video.paused) {
                     video.play().catch(e => {

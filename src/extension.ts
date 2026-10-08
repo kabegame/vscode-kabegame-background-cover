@@ -46,7 +46,7 @@ export function activate(context: ExtensionContext) {
     const ipcClient = new KabegameIpcClient();
     context.subscriptions.push(ipcClient);
 
-    // Sync wallpaper when setting-change event arrives (currentWallpaperImageId or wallpaperStyle)
+    // Sync wallpaper when setting-change event arrives (currentWallpaperImageId / wallpaperStyle / wallpaperVideoPlaybackRate)
     context.subscriptions.push(ipcClient.onSettingChange(async (changes) => {
         const syncEnabled = workspace.getConfiguration('backgroundCover').get<boolean>('syncKabegame', true);
         if (!syncEnabled) { return; }
@@ -67,6 +67,17 @@ export function activate(context: ExtensionContext) {
                 'backgroundCover.sizeModel', sizeModel, ConfigurationTarget.Global
             );
             PickList.needAutoUpdate(workspace.getConfiguration('backgroundCover'));
+        }
+        const rate = Number(changes['wallpaperVideoPlaybackRate']);
+        if ('wallpaperVideoPlaybackRate' in changes && Number.isFinite(rate)) {
+            const playbackRate = Math.min(3, Math.max(0.25, rate));
+            // 每次连上都会回放一次当前值，未变化时不重写背景文件
+            if (workspace.getConfiguration('backgroundCover').get<number>('videoPlaybackRate', 1) !== playbackRate) {
+                await workspace.getConfiguration().update(
+                    'backgroundCover.videoPlaybackRate', playbackRate, ConfigurationTarget.Global
+                );
+                PickList.needAutoUpdate(workspace.getConfiguration('backgroundCover'));
+            }
         }
     }));
 

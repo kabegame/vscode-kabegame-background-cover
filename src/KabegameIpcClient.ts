@@ -256,6 +256,14 @@ export class KabegameIpcClient implements vscode.Disposable {
                 this._onSettingChange.fire({ currentWallpaperImageId: imageId });
             }
         }).catch(() => { /* ignore */ });
+
+        // 3. 视频播放速度只在变化时才有 setting-change，连上时先取一次当前值
+        this.request('settings-get-wallpaper-video-playback-rate').then((rate) => {
+            const n = Number(rate);
+            if (Number.isFinite(n)) {
+                this._onSettingChange.fire({ wallpaperVideoPlaybackRate: n });
+            }
+        }).catch(() => { /* ignore */ });
     }
 
     private onDisconnected(): void {

@@ -2,7 +2,7 @@
   "name": "kabegame-background-cover",
   "displayName": "kabegame-background-cover",
   "description": "VS Code background powered by Kabegame — syncs wallpaper rotation via IPC and browses your local Kabegame image library.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "cmtheit",
   "engines": {
     "vscode": "^1.38.0"
@@ -110,6 +110,13 @@
           ],
           "default": "auto",
           "description": "Background image blend mode / 图片文字混合模式，对应主题模式"
+        },
+        "backgroundCover.videoPlaybackRate": {
+          "type": "number",
+          "minimum": 0.25,
+          "maximum": 3,
+          "default": 1,
+          "description": "Video background playback rate (synced from Kabegame wallpaperVideoPlaybackRate) / 视频背景播放速度"
         },
         "backgroundCover.syncKabegame": {
           "type": "boolean",

@@ -22,7 +22,7 @@
     "Kabegame"
   ],
   "activationEvents": [
-    "*"
+    "onStartupFinished"
   ],
   "license": "GPL-3.0-only",
   "main": "./out/extension",
@@ -199,7 +199,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node ./node_modules/vscode/bin/test",
-    "check": "tslint -p ./"
+    "check": "tslint -p ./",
+    "p": "vsce package"
   },
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
@@ -209,6 +210,7 @@
     "@types/proper-lockfile": "^4.1.4",
     "@types/vscode": "^1.30.0",
     "@vscode/test-electron": "^2.3.2",
+    "@vscode/vsce": "^3.9.2",
     "typescript": "^4.5.4"
   },
   "dependencies": {
